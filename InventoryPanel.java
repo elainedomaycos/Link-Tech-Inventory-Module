@@ -13,7 +13,8 @@ public class InventoryPanel extends JPanel {
     private InventoryTableModel model;
     private JTable table;
     private int lowStockThreshold = 20;
-    private int nextId = 10;
+    private final ProductRepository productRepository = new ProductRepository();
+    private final SupplierRepository supplierRepository = new SupplierRepository();
 
     // Pagination
     private int rowsPerPage = 8;
@@ -37,9 +38,9 @@ public class InventoryPanel extends JPanel {
         setLayout(new BorderLayout());
         setBorder(new EmptyBorder(24, 28, 24, 28));
 
-        model = new InventoryTableModel(sampleData());
+        model = new InventoryTableModel(new ArrayList<>());
         model.setPaginationParams(1, rowsPerPage);
-        nextId = model.getTotalProducts() + 1;
+        loadProductsFromDatabase();
         
         // Listen to model changes and auto-refresh stats
         model.addTableModelListener(e -> refreshStats());
@@ -166,7 +167,7 @@ public class InventoryPanel extends JPanel {
         cbCategory = UIComponents.createComboBox(new String[]{"Monitor","Laptop","Phone","Tablet","Accessory"});
         tfStock    = UIComponents.createTextField("0");
         tfPrice    = UIComponents.createTextField("0.00");
-        cbSupplier = UIComponents.createComboBox(new String[]{"TechSource Distribution","Digital Hub Components","GlobalTech Supply"});
+        cbSupplier = UIComponents.createComboBox(getSupplierChoices());
         JTextField tfIdDisplay = UIComponents.createTextField("Auto-generated");
         tfIdDisplay.setEditable(false);
         tfIdDisplay.setForeground(AppColors.TEXT_SECONDARY);
@@ -489,15 +490,19 @@ public class InventoryPanel extends JPanel {
             int stock    = Integer.parseInt(tfStock.getText().trim());
             double price = Double.parseDouble(tfPrice.getText().trim());
             String supplier = (String) cbSupplier.getSelectedItem();
-            Product p = new Product(nextId++, tfName.getText().trim(),
+            Product p = new Product(0, tfName.getText().trim(),
                 (String) cbCategory.getSelectedItem(), stock, price, 1, supplier);
-            model.addProduct(p);
+            productRepository.insert(p);
+            loadProductsFromDatabase();
             currentPage = 1; // Reset to first page
             applyTableFilters();
             clearForm();
             refreshStats();
+            showActionStatus("Product added successfully.", new Color(22, 163, 74));
         } catch (NumberFormatException ex) {
             showError("Stock and price must be valid numbers.");
+        } catch (RuntimeException ex) {
+            showError("Could not save product to Supabase: " + ex.getMessage());
         }
     }
 
@@ -511,12 +516,15 @@ public class InventoryPanel extends JPanel {
             Product updated  = new Product(existing.getId(), tfName.getText().trim(),
                 (String) cbCategory.getSelectedItem(), stock, price,
                 existing.getSupplierId(), (String) cbSupplier.getSelectedItem());
-            model.updateProduct(row, updated);
+            productRepository.update(updated);
+            loadProductsFromDatabase();
             applyTableFilters();
             refreshStats();
             showActionStatus("Product updated successfully.", new Color(22, 163, 74));
         } catch (NumberFormatException ex) {
             showError("Stock and price must be valid numbers.");
+        } catch (RuntimeException ex) {
+            showError("Could not update product in Supabase: " + ex.getMessage());
         }
     }
 
@@ -542,7 +550,13 @@ public class InventoryPanel extends JPanel {
             "Delete \"" + p.getName() + "\"?", "Confirm Delete",
             JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (res == JOptionPane.YES_OPTION) {
-            model.removeProduct(row);
+            try {
+                productRepository.deleteById(p.getId());
+                loadProductsFromDatabase();
+            } catch (RuntimeException ex) {
+                showError("Could not delete product from Supabase: " + ex.getMessage());
+                return;
+            }
             if (currentPage > 1) {
                 int totalPages = Math.max(1, (model.getFilteredRowCount() + rowsPerPage - 1) / rowsPerPage);
                 if (currentPage > totalPages) currentPage = totalPages;
@@ -627,6 +641,30 @@ public class InventoryPanel extends JPanel {
         actionStatusTimer = new javax.swing.Timer(2500, e -> lblActionStatus.setText(" "));
         actionStatusTimer.setRepeats(false);
         actionStatusTimer.start();
+    }
+
+    private void loadProductsFromDatabase() {
+        try {
+            List<Product> dbProducts = productRepository.findAll();
+            model.replaceProducts(dbProducts);
+        } catch (Exception exception) {
+            if (model.getTotalProducts() == 0) {
+                model.replaceProducts(sampleData());
+            }
+            showActionStatus("Using local fallback data. Supabase unavailable.", new Color(220, 38, 38));
+        }
+    }
+
+    private String[] getSupplierChoices() {
+        try {
+            List<Supplier> suppliers = supplierRepository.findAll();
+            if (suppliers.isEmpty()) {
+                return new String[]{"TechSource Distribution", "Digital Hub Components", "GlobalTech Supply"};
+            }
+            return suppliers.stream().map(Supplier::getName).toArray(String[]::new);
+        } catch (Exception exception) {
+            return new String[]{"TechSource Distribution", "Digital Hub Components", "GlobalTech Supply"};
+        }
     }
 
     // ── Sample data ────────────────────────────────────────────────────────────

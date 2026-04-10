@@ -172,5 +172,13 @@ public class InventoryTableModel extends AbstractTableModel {
         this.rowsPerPage = Math.max(1, rows);
         fireTableDataChanged();
     }
+
+    public void replaceProducts(List<Product> newProducts) {
+        this.allProducts = new ArrayList<>(newProducts);
+        this.products = new ArrayList<>(newProducts);
+        this.selected.clear();
+        this.currentPage = 1;
+        fireTableDataChanged();
+    }
 }
 

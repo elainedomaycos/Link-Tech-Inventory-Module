@@ -17,13 +17,15 @@ public class PurchaseOrderPanel extends JPanel {
     private JLabel lblTotalOrders, lblPendingValue;
     private List<PurchaseOrder> orders;
     private List<PurchaseOrder> filteredOrders;
+    private final PurchaseOrderRepository orderRepository = new PurchaseOrderRepository();
+    private final SupplierRepository supplierRepository = new SupplierRepository();
 
     public PurchaseOrderPanel() {
         setBackground(AppColors.PAGE_BG);
         setLayout(new BorderLayout());
         setBorder(new EmptyBorder(24, 28, 24, 28));
 
-        orders = sampleOrders();
+        orders = loadOrdersFromDatabase();
         filteredOrders = new ArrayList<>(orders);
 
         add(buildHeader(), BorderLayout.NORTH);
@@ -136,21 +138,7 @@ public class PurchaseOrderPanel extends JPanel {
         tfOrderNum = UIComponents.createTextField("Auto-generated");
         tfOrderNum.setEditable(false);
         tfOrderNum.setForeground(AppColors.TEXT_SECONDARY);
-        cbSupplier = UIComponents.createComboBox(new String[]{
-            "Select supplier...",
-            "TechSource Distribution",
-            "Digital Hub Components",
-            "GlobalTech Supply",
-            "Nexus Wholesale Partners",
-            "Vertex Electronics Hub",
-            "Prime Components Group",
-            "Quantum Device Traders",
-            "Titan Industrial Supplies",
-            "Aurora Hardware Networks",
-            "BluePeak Distribution",
-            "CoreWave Technologies",
-            "EverGrid Supply Co."
-        });
+        cbSupplier = UIComponents.createComboBox(getSupplierChoices());
         tfQuantity = UIComponents.createTextField("0");
         tfUnitPrice = UIComponents.createTextField("0.00");
         cbStatus = UIComponents.createComboBox(new String[]{"Pending", "Confirmed", "Shipped", "Delivered"});
@@ -312,14 +300,17 @@ public class PurchaseOrderPanel extends JPanel {
         try {
             int qty = Integer.parseInt(tfQuantity.getText().trim());
             double price = Double.parseDouble(tfUnitPrice.getText().trim());
-            PurchaseOrder o = new PurchaseOrder(orders.size() + 1, supplier,
+            PurchaseOrder o = new PurchaseOrder(0, supplier,
                 qty, price, (String) cbStatus.getSelectedItem(), LocalDate.now());
-            orders.add(o);
+            orderRepository.insert(o);
+            orders = loadOrdersFromDatabase();
             clearForm();
             refreshTable();
             refreshStats();
         } catch (NumberFormatException ex) {
             showError("Quantity and Price must be valid numbers.");
+        } catch (RuntimeException ex) {
+            showError("Could not create order in Supabase: " + ex.getMessage());
         }
     }
 
@@ -338,11 +329,15 @@ public class PurchaseOrderPanel extends JPanel {
             o.setQuantity(Integer.parseInt(tfQuantity.getText().trim()));
             o.setUnitPrice(Double.parseDouble(tfUnitPrice.getText().trim()));
             o.setStatus((String) cbStatus.getSelectedItem());
+            orderRepository.update(o);
+            orders = loadOrdersFromDatabase();
             refreshTable();
             clearForm();
             refreshStats();
         } catch (NumberFormatException ex) {
             showError("Invalid input.");
+        } catch (RuntimeException ex) {
+            showError("Could not update order in Supabase: " + ex.getMessage());
         }
     }
 
@@ -355,10 +350,15 @@ public class PurchaseOrderPanel extends JPanel {
             "Cancel order #" + o.getOrderId() + "?", "Confirm Cancel",
             JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (res == JOptionPane.YES_OPTION) {
-            orders.remove(o);
-            clearForm();
-            refreshTable();
-            refreshStats();
+            try {
+                orderRepository.deleteById(o.getOrderId());
+                orders = loadOrdersFromDatabase();
+                clearForm();
+                refreshTable();
+                refreshStats();
+            } catch (RuntimeException ex) {
+                showError("Could not cancel order in Supabase: " + ex.getMessage());
+            }
         }
     }
 
@@ -422,6 +422,45 @@ public class PurchaseOrderPanel extends JPanel {
 
     private void showError(String msg) {
         JOptionPane.showMessageDialog(this, msg, "Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+    private List<PurchaseOrder> loadOrdersFromDatabase() {
+        try {
+            return orderRepository.findAll();
+        } catch (Exception exception) {
+            return sampleOrders();
+        }
+    }
+
+    private String[] getSupplierChoices() {
+        List<String> choices = new ArrayList<>();
+        choices.add("Select supplier...");
+        try {
+            List<Supplier> suppliers = supplierRepository.findAll();
+            if (!suppliers.isEmpty()) {
+                for (Supplier supplier : suppliers) {
+                    choices.add(supplier.getName());
+                }
+                return choices.toArray(new String[0]);
+            }
+        } catch (Exception ignored) {
+        }
+
+        choices.addAll(Arrays.asList(
+            "TechSource Distribution",
+            "Digital Hub Components",
+            "GlobalTech Supply",
+            "Nexus Wholesale Partners",
+            "Vertex Electronics Hub",
+            "Prime Components Group",
+            "Quantum Device Traders",
+            "Titan Industrial Supplies",
+            "Aurora Hardware Networks",
+            "BluePeak Distribution",
+            "CoreWave Technologies",
+            "EverGrid Supply Co."
+        ));
+        return choices.toArray(new String[0]);
     }
 
     private List<PurchaseOrder> sampleOrders() {

@@ -19,6 +19,19 @@ public class Main {
             e.printStackTrace();
         }
 
+        try {
+            SupabaseInitializer.initialize();
+        } catch (Exception exception) {
+            exception.printStackTrace();
+            JOptionPane.showMessageDialog(
+                null,
+                "Database initialization failed. Please configure SUPABASE_DB_PASSWORD and try again.\n\n" + exception.getMessage(),
+                "Supabase Error",
+                JOptionPane.ERROR_MESSAGE
+            );
+            return;
+        }
+
         SwingUtilities.invokeLater(() -> {
             LoginFrame frame = new LoginFrame();
             frame.setVisible(true);

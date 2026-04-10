@@ -1,9 +1,6 @@
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.prefs.Preferences;
 
 public class LoginFrame extends JFrame {
 
@@ -20,28 +17,7 @@ public class LoginFrame extends JFrame {
 
     private static final int MAX_ATTEMPTS = 5;
     private static final long LOCKOUT_DURATION_MS = 60_000L;
-
-    private static final Preferences PREFS = Preferences.userRoot().node("linktech.erp.login");
-    private static final String PREF_REMEMBER = "remember_me";
-    private static final String PREF_USERNAME = "remembered_username";
-
-    private static class UserAccount {
-        private final String password;
-        private final String role;
-
-        UserAccount(String password, String role) {
-            this.password = password;
-            this.role = role;
-        }
-    }
-
-    private static final Map<String, UserAccount> ACCOUNTS = new LinkedHashMap<>();
-
-    static {
-        ACCOUNTS.put("admin", new UserAccount("admin123", "Administrator"));
-        ACCOUNTS.put("manager", new UserAccount("manager123", "Inventory Manager"));
-        ACCOUNTS.put("staff", new UserAccount("staff123", "Inventory Staff"));
-    }
+    private final AuthRepository authRepository = new AuthRepository();
 
     public LoginFrame() {
         setTitle("LinkTech ERP - Login");
@@ -291,22 +267,26 @@ public class LoginFrame extends JFrame {
     }
 
     private void loadRememberedUser() {
-        boolean remember = PREFS.getBoolean(PREF_REMEMBER, false);
-        String rememberedUsername = PREFS.get(PREF_USERNAME, "");
-        cbRememberMe.setSelected(remember);
-        if (remember && !rememberedUsername.trim().isEmpty()) {
-            tfUsername.setText(rememberedUsername);
-            pfPassword.requestFocusInWindow();
+        try {
+            AuthRepository.RememberedLogin rememberedLogin = authRepository.loadRememberedLogin();
+            cbRememberMe.setSelected(rememberedLogin.isRememberMe());
+            if (rememberedLogin.isRememberMe() && !rememberedLogin.getUsername().trim().isEmpty()) {
+                tfUsername.setText(rememberedLogin.getUsername());
+                pfPassword.requestFocusInWindow();
+            }
+        } catch (Exception exception) {
+            cbRememberMe.setSelected(false);
+            lblStatus.setForeground(new Color(220, 38, 38));
+            lblStatus.setText("Could not load remembered login from database.");
         }
     }
 
     private void persistRememberedUser(String username) {
-        if (cbRememberMe.isSelected()) {
-            PREFS.putBoolean(PREF_REMEMBER, true);
-            PREFS.put(PREF_USERNAME, username);
-        } else {
-            PREFS.putBoolean(PREF_REMEMBER, false);
-            PREFS.remove(PREF_USERNAME);
+        try {
+            authRepository.saveRememberedLogin(cbRememberMe.isSelected(), username);
+        } catch (Exception exception) {
+            lblStatus.setForeground(new Color(220, 38, 38));
+            lblStatus.setText("Login worked, but remember-me could not be saved.");
         }
     }
 
@@ -353,14 +333,22 @@ public class LoginFrame extends JFrame {
             return;
         }
 
-        UserAccount account = ACCOUNTS.get(username);
-        if (account != null && account.password.equals(password)) {
+        String role;
+        try {
+            role = authRepository.authenticate(username, password);
+        } catch (Exception exception) {
+            lblStatus.setForeground(new Color(220, 38, 38));
+            lblStatus.setText("Database login failed: " + exception.getMessage());
+            return;
+        }
+
+        if (role != null) {
             failedAttempts = 0;
             lockoutUntilMillis = 0L;
             btnLogin.setEnabled(true);
             persistRememberedUser(username);
             lblStatus.setForeground(new Color(22, 163, 74));
-            lblStatus.setText("Login successful. Welcome, " + account.role + ".");
+            lblStatus.setText("Login successful. Welcome, " + role + ".");
             MainFrame frame = new MainFrame();
             frame.setVisible(true);
             dispose();

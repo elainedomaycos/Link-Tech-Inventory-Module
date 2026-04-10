@@ -14,13 +14,14 @@ public class SupplierPanel extends JPanel {
     private JComboBox<String> cbCategory, cbCategoryFilter, cbRating;
     private List<Supplier> suppliers;
     private List<Supplier> filteredSuppliers;
+    private final SupplierRepository supplierRepository = new SupplierRepository();
 
     public SupplierPanel() {
         setBackground(AppColors.PAGE_BG);
         setLayout(new BorderLayout());
         setBorder(new EmptyBorder(24, 28, 24, 28));
 
-        suppliers = sampleSuppliers();
+        suppliers = loadSuppliersFromDatabase();
         filteredSuppliers = new ArrayList<>(suppliers);
 
         add(buildHeader(), BorderLayout.NORTH);
@@ -243,13 +244,16 @@ public class SupplierPanel extends JPanel {
             return;
         }
         try {
-            Supplier s = new Supplier(nextSupplierId(), tfSupplierName.getText().trim(),
+            Supplier s = new Supplier(0, tfSupplierName.getText().trim(),
                 (String) cbCategory.getSelectedItem(),
                 tfEmail.getText().trim(), tfPhone.getText().trim(), tfAddress.getText().trim(),
                 (String) cbRating.getSelectedItem());
-            suppliers.add(s);
+            supplierRepository.insert(s);
+            suppliers = loadSuppliersFromDatabase();
             clearForm();
             refreshTable();
+        } catch (RuntimeException ex) {
+            showError("Could not save supplier to Supabase: " + ex.getMessage());
         } catch (Exception ex) {
             showError("Invalid input.");
         }
@@ -267,8 +271,12 @@ public class SupplierPanel extends JPanel {
             s.setPhone(tfPhone.getText().trim());
             s.setAddress(tfAddress.getText().trim());
             s.setRating((String) cbRating.getSelectedItem());
+            supplierRepository.update(s);
+            suppliers = loadSuppliersFromDatabase();
             refreshTable();
             clearForm();
+        } catch (RuntimeException ex) {
+            showError("Could not update supplier in Supabase: " + ex.getMessage());
         } catch (Exception ex) {
             showError("Invalid input.");
         }
@@ -283,9 +291,14 @@ public class SupplierPanel extends JPanel {
             "Delete \"" + s.getName() + "\"?", "Confirm Delete",
             JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (res == JOptionPane.YES_OPTION) {
-            suppliers.remove(s);
-            clearForm();
-            refreshTable();
+            try {
+                supplierRepository.deleteById(s.getId());
+                suppliers = loadSuppliersFromDatabase();
+                clearForm();
+                refreshTable();
+            } catch (RuntimeException ex) {
+                showError("Could not delete supplier from Supabase: " + ex.getMessage());
+            }
         }
     }
 
@@ -331,18 +344,16 @@ public class SupplierPanel extends JPanel {
         }
     }
 
-    private int nextSupplierId() {
-        int maxId = 0;
-        for (Supplier s : suppliers) {
-            if (s.getId() > maxId) {
-                maxId = s.getId();
-            }
-        }
-        return maxId + 1;
-    }
-
     private void showError(String msg) {
         JOptionPane.showMessageDialog(this, msg, "Error", JOptionPane.ERROR_MESSAGE);
+    }
+
+    private List<Supplier> loadSuppliersFromDatabase() {
+        try {
+            return supplierRepository.findAll();
+        } catch (Exception exception) {
+            return sampleSuppliers();
+        }
     }
 
     private List<Supplier> sampleSuppliers() {
